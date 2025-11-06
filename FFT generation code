@@ -1,0 +1,87 @@
+%% ================================================================
+%  Digital Twin of Rotating Shaft - FFT & RMS Analysis Script
+%  Author: Karthik Gopi
+%  Course: MDM2104 – Intelligent Systems in Production
+%  Phase: Fault Injection & Data Analysis
+%  Description:
+%     This script performs frequency-domain and statistical analysis
+%     (FFT and RMS) for healthy and faulty shaft vibration signals
+%     obtained from MATLAB Simulink.
+% ================================================================
+
+clc; clear; close all;
+
+%% -------------------- USER INPUT SECTION ------------------------
+% Replace these variables with your workspace signal names
+% Example: out_healthy and out_faulty are Simulink simulation outputs
+
+healthy_signal = out_healthy.vibration_signal;   % healthy condition
+faulty_signal  = out_faulty.vibration_signal;    % faulty condition
+
+% Sampling frequency (Hz) – must match your Simulink sample time
+Fs = 1000; % adjust if your simulation step size differs
+
+%% -------------------- DATA EXTRACTION ---------------------------
+% Convert Simulink timeseries data to numeric arrays
+healthy_data = healthy_signal.Data;
+faulty_data  = faulty_signal.Data;
+
+L = length(healthy_data);           % number of samples
+t = (0:L-1)/Fs;                     % time vector
+
+%% -------------------- RMS CALCULATION ----------------------------
+RMS_healthy = rms(healthy_data);
+RMS_faulty  = rms(faulty_data);
+
+fprintf('\nRMS (Healthy) = %.2f\n', RMS_healthy);
+fprintf('RMS (Faulty)  = %.2f\n', RMS_faulty);
+
+%% -------------------- FFT CALCULATION ----------------------------
+% Compute FFT of both signals
+Y1 = fft(healthy_data);
+Y2 = fft(faulty_data);
+
+% Compute two-sided and single-sided spectra
+P2_h = abs(Y1/L);
+P2_f = abs(Y2/L);
+P1_h = P2_h(1:L/2+1);
+P1_f = P2_f(1:L/2+1);
+P1_h(2:end-1) = 2*P1_h(2:end-1);
+P1_f(2:end-1) = 2*P1_f(2:end-1);
+
+% Frequency axis
+f = Fs*(0:(L/2))/L;
+
+%% -------------------- FFT PLOT -----------------------------------
+figure('Color','w');
+plot(f, P1_h, 'b', 'LineWidth', 1.5); hold on;
+plot(f, P1_f, 'r', 'LineWidth', 1.5);
+title('FFT Spectrum – Healthy vs Faulty Shaft');
+xlabel('Frequency (Hz)');
+ylabel('Amplitude');
+legend('Healthy Shaft','Faulty Shaft');
+grid on;
+
+%% -------------------- PEAK FREQUENCY DETECTION -------------------
+[~, idx_h] = max(P1_h);
+[~, idx_f] = max(P1_f);
+peakFreq_healthy = f(idx_h);
+peakFreq_faulty  = f(idx_f);
+
+fprintf('\nPeak Frequency (Healthy): %.2f Hz\n', peakFreq_healthy);
+fprintf('Peak Frequency (Faulty): %.2f Hz\n', peakFreq_faulty);
+
+%% -------------------- FEATURE TABLE ------------------------------
+Condition = ["Healthy"; "Faulty"];
+RMS_Value = [RMS_healthy; RMS_faulty];
+Peak_Freq = [peakFreq_healthy; peakFreq_faulty];
+Results = table(Condition, RMS_Value, Peak_Freq);
+
+disp('------------------------------------------');
+disp('Feature Comparison Table');
+disp(Results);
+disp('------------------------------------------');
+
+%% -------------------- SAVE RESULTS -------------------------------
+save('fft_rms_results.mat','Results','P1_h','P1_f','f');
+fprintf('\nFFT and RMS results saved to fft_rms_results.mat\n');
