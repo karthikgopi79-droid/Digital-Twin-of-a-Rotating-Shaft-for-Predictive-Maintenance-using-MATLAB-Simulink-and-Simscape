@@ -1,0 +1,413 @@
+classdef ml_model_optimized
+    % ML_MODEL_OPTIMIZED - Enhanced ML system with comprehensive performance analysis
+    
+    properties (Constant)
+        TEST_SIZE = 0.2;          % 80/20 train/test split
+        RANDOM_SEED = 42;         % For reproducibility
+        N_CV_FOLDS = 5;           % Cross-validation folds
+    end
+    
+    methods (Static)
+        
+        function train_and_save_models()
+            % TRAIN AND SAVE MODELS - Enhanced with comprehensive analysis
+            fprintf('=== TRAINING ML MODELS WITH COMPREHENSIVE ANALYSIS ===\n\n');
+            
+            % STEP 1: Load and process data
+            fprintf('1. 📊 Loading vibration data...\n');
+            vibration_data = ml_model_optimized.load_vibration_data('../data');
+            
+            if isempty(fieldnames(vibration_data))
+                fprintf('   ❌ No data loaded. Check data folder.\n');
+                return;
+            end
+            
+            % STEP 2: Train ML models with validation
+            fprintf('2. 🤖 Training ML models with cross-validation...\n');
+            [ml_models, performance_metrics, performance_matrices] = ml_model_optimized.train_models_with_validation(vibration_data);
+            
+            % STEP 3: Generate comprehensive performance report
+            fprintf('3. 📈 Generating comprehensive performance analysis...\n');
+            ml_model_optimized.generate_performance_report(performance_metrics, performance_matrices);
+            
+            % STEP 4: Save models and performance
+            fprintf('4. 💾 Saving models and performance metrics...\n');
+            ml_model_optimized.save_models(ml_models, performance_metrics, performance_matrices);
+            
+            fprintf('✅ Models trained and analyzed successfully!\n');
+        end
+        
+        function [ml_models, performance_metrics, performance_matrices] = train_models_with_validation(vibration_data)
+            % TRAIN ML MODELS WITH COMPREHENSIVE VALIDATION
+            dataset_names = fieldnames(vibration_data);
+            
+            % Prepare training data
+            features = [];
+            targets_spring = [];
+            targets_damper = [];
+            targets_inertia = [];
+            
+            for i = 1:length(dataset_names)
+                data = vibration_data.(dataset_names{i});
+                features = [features; data.features.vector];
+                
+                [spring_k, damper_c, inertia_j] = ml_model_optimized.calculate_targets(data);
+                targets_spring = [targets_spring; spring_k];
+                targets_damper = [targets_damper; damper_c];
+                targets_inertia = [targets_inertia; inertia_j];
+            end
+            
+            % Create train/test split
+            rng(ml_model_optimized.RANDOM_SEED);
+            cv = cvpartition(size(features, 1), 'HoldOut', ml_model_optimized.TEST_SIZE);
+            
+            train_features = features(cv.training, :);
+            test_features = features(cv.test, :);
+            train_spring = targets_spring(cv.training);
+            test_spring = targets_spring(cv.test);
+            train_damper = targets_damper(cv.training);
+            test_damper = targets_damper(cv.test);
+            train_inertia = targets_inertia(cv.training);
+            test_inertia = targets_inertia(cv.test);
+            
+            fprintf('   📊 Data split: %d training, %d test samples\n', ...
+                sum(cv.training), sum(cv.test));
+            
+            % Hyperparameter optimization
+            fprintf('   🔧 Optimizing hyperparameters...\n');
+            best_params = ml_model_optimized.optimize_hyperparameters(...
+                train_features, train_spring, train_damper, train_inertia);
+            
+            % Train final non-cross-validated models for prediction
+            ml_models = struct();
+            ml_models.spring_final = fitrtree(train_features, train_spring, ...
+                'MinLeafSize', best_params.spring_leaf);
+            ml_models.damper_final = fitrtree(train_features, train_damper, ...
+                'MinLeafSize', best_params.damper_leaf);
+            ml_models.inertia_final = fitrtree(train_features, train_inertia, ...
+                'MinLeafSize', best_params.inertia_leaf);
+            
+            % Train cross-validated models for performance evaluation
+            ml_models.spring_model = fitrtree(train_features, train_spring, ...
+                'MinLeafSize', best_params.spring_leaf, ...
+                'CrossVal', 'on', 'KFold', ml_model_optimized.N_CV_FOLDS);
+            
+            ml_models.damper_model = fitrtree(train_features, train_damper, ...
+                'MinLeafSize', best_params.damper_leaf, ...
+                'CrossVal', 'on', 'KFold', ml_model_optimized.N_CV_FOLDS);
+            
+            ml_models.inertia_model = fitrtree(train_features, train_inertia, ...
+                'MinLeafSize', best_params.inertia_leaf, ...
+                'CrossVal', 'on', 'KFold', ml_model_optimized.N_CV_FOLDS);
+            
+            % Evaluate performance on test set
+            performance_metrics = ml_model_optimized.evaluate_models(...
+                ml_models, test_features, test_spring, test_damper, test_inertia);
+            
+            % Generate comprehensive performance matrices
+            performance_matrices = ml_model_optimized.generate_performance_matrices(...
+                ml_models, test_features, test_spring, test_damper, test_inertia, performance_metrics);
+            
+            fprintf('   ✅ Models trained and validated\n');
+        end
+        
+        function performance_matrices = generate_performance_matrices(ml_models, test_features, test_spring, test_damper, test_inertia, performance)
+            % GENERATE COMPREHENSIVE PERFORMANCE MATRICES
+            
+            fprintf('   📊 Generating performance matrices...\n');
+            
+            performance_matrices = struct();
+            
+            % Get predictions
+            spring_pred = predict(ml_models.spring_final, test_features);
+            damper_pred = predict(ml_models.damper_final, test_features);
+            inertia_pred = predict(ml_models.inertia_final, test_features);
+            
+            % 1. ACTUAL VS PREDICTED MATRIX
+            performance_matrices.actual_vs_predicted.spring = [test_spring, spring_pred, abs(test_spring - spring_pred), (test_spring - spring_pred).^2];
+            performance_matrices.actual_vs_predicted.damper = [test_damper, damper_pred, abs(test_damper - damper_pred), (test_damper - damper_pred).^2];
+            performance_matrices.actual_vs_predicted.inertia = [test_inertia, inertia_pred, abs(test_inertia - inertia_pred), (test_inertia - inertia_pred).^2];
+            
+            % 2. PERFORMANCE SUMMARY MATRIX
+            performance_matrices.performance_summary = {
+                'Model',    'Test_RMSE', 'CV_RMSE', 'MAE',   'R²',    'MSE';
+                'Spring',   performance.spring.rmse, performance.spring.cv_rmse, performance.spring.mae, performance.spring.r2, performance.spring.mse;
+                'Damper',   performance.damper.rmse, performance.damper.cv_rmse, performance.damper.mae, performance.damper.r2, performance.damper.mse;
+                'Inertia',  performance.inertia.rmse, performance.inertia.cv_rmse, performance.inertia.mae, performance.inertia.r2, performance.inertia.mse
+            };
+            
+            % 3. ERROR STATISTICS MATRIX
+            spring_errors = test_spring - spring_pred;
+            damper_errors = test_damper - damper_pred;
+            inertia_errors = test_inertia - inertia_pred;
+            
+            performance_matrices.error_statistics = {
+                'Model',    'Mean_Error', 'Std_Error', 'Skewness', 'Kurtosis', 'Max_Abs_Error', '95th_Percentile';
+                'Spring',   mean(spring_errors), std(spring_errors), skewness(spring_errors), kurtosis(spring_errors), max(abs(spring_errors)), prctile(abs(spring_errors), 95);
+                'Damper',   mean(damper_errors), std(damper_errors), skewness(damper_errors), kurtosis(damper_errors), max(abs(damper_errors)), prctile(abs(damper_errors), 95);
+                'Inertia',  mean(inertia_errors), std(inertia_errors), skewness(inertia_errors), kurtosis(inertia_errors), max(abs(inertia_errors)), prctile(abs(inertia_errors), 95)
+            };
+            
+            % 4. FEATURE IMPORTANCE RANKING
+            feature_names = {'RMS', 'Peak', 'Crest_Factor', 'Kurtosis', 'Skewness', ...
+                            'Dom_Freq', 'Low_Energy', 'Med_Energy', 'High_Energy', ...
+                            'Mean_RPM', 'RPM_Var', 'Voltage'};
+            
+            [~, spring_idx] = sort(performance.spring.feature_importance, 'descend');
+            [~, damper_idx] = sort(performance.damper.feature_importance, 'descend');
+            [~, inertia_idx] = sort(performance.inertia.feature_importance, 'descend');
+            
+            performance_matrices.feature_ranking.spring = [feature_names(spring_idx(1:5))', num2cell(performance.spring.feature_importance(spring_idx(1:5))')];
+            performance_matrices.feature_ranking.damper = [feature_names(damper_idx(1:5))', num2cell(performance.damper.feature_importance(damper_idx(1:5))')];
+            performance_matrices.feature_ranking.inertia = [feature_names(inertia_idx(1:5))', num2cell(performance.inertia.feature_importance(inertia_idx(1:5))')];
+            
+            % 5. CONFIDENCE INTERVAL MATRIX (for calibration)
+            performance_matrices.confidence_intervals = {
+                'Parameter', 'Predicted_Value', 'Lower_CI', 'Upper_CI', 'CI_Width';
+                'Spring',    0, 0, 0, 0;  % Will be filled during calibration
+                'Damper',    0, 0, 0, 0;
+                'Inertia',   0, 0, 0, 0
+            };
+            
+            fprintf('   ✅ Performance matrices generated\n');
+        end
+        
+        function generate_performance_report(performance_metrics, performance_matrices)
+            % GENERATE COMPREHENSIVE PERFORMANCE REPORT
+            
+            fprintf('\n📊 ============================================\n');
+            fprintf('           COMPREHENSIVE PERFORMANCE REPORT\n');
+            fprintf('============================================\n\n');
+            
+            % 1. Performance Summary
+            fprintf('1. 📈 PERFORMANCE SUMMARY:\n');
+            fprintf('   %-10s %-10s %-10s %-10s %-8s %-10s\n', ...
+                'Model', 'Test_RMSE', 'CV_RMSE', 'MAE', 'R²', 'MSE');
+            fprintf('   %-10s %-10.2f %-10.2f %-10.2f %-8.3f %-10.2f\n', ...
+                performance_matrices.performance_summary{2,:});
+            fprintf('   %-10s %-10.3f %-10.3f %-10.3f %-8.3f %-10.4f\n', ...
+                performance_matrices.performance_summary{3,:});
+            fprintf('   %-10s %-10.4f %-10.4f %-10.4f %-8.3f %-10.6f\n', ...
+                performance_matrices.performance_summary{4,:});
+            
+            % 2. Error Statistics
+            fprintf('\n2. 📉 ERROR STATISTICS:\n');
+            fprintf('   %-10s %-12s %-12s %-10s %-10s %-15s %-15s\n', ...
+                'Model', 'Mean_Error', 'Std_Error', 'Skewness', 'Kurtosis', 'Max_Abs_Error', '95th_Percentile');
+            for i = 2:4
+                fprintf('   %-10s %-12.4f %-12.4f %-10.2f %-10.2f %-15.4f %-15.4f\n', ...
+                    performance_matrices.error_statistics{i,:});
+            end
+            
+            % 3. Feature Importance
+            fprintf('\n3. 🔍 FEATURE IMPORTANCE RANKING:\n');
+            fprintf('   Spring - Top 5 Features:\n');
+            for i = 1:5
+                fprintf('      %d. %s (%.4f)\n', i, ...
+                    performance_matrices.feature_ranking.spring{i,1}, ...
+                    performance_matrices.feature_ranking.spring{i,2});
+            end
+            
+            fprintf('   Damper - Top 5 Features:\n');
+            for i = 1:5
+                fprintf('      %d. %s (%.4f)\n', i, ...
+                    performance_matrices.feature_ranking.damper{i,1}, ...
+                    performance_matrices.feature_ranking.damper{i,2});
+            end
+            
+            fprintf('   Inertia - Top 5 Features:\n');
+            for i = 1:5
+                fprintf('      %d. %s (%.4f)\n', i, ...
+                    performance_matrices.feature_ranking.inertia{i,1}, ...
+                    performance_matrices.feature_ranking.inertia{i,2});
+            end
+            
+            % 4. Model Quality Assessment
+            fprintf('\n4. 🎯 MODEL QUALITY ASSESSMENT:\n');
+            ml_model_optimized.assess_model_quality(performance_metrics);
+            
+            fprintf('\n============================================\n');
+            fprintf('           END OF PERFORMANCE REPORT\n');
+            fprintf('============================================\n\n');
+        end
+        
+        function assess_model_quality(performance)
+            % ASSESS OVERALL MODEL QUALITY
+            
+            fprintf('   Spring Model: ');
+            if performance.spring.r2 > 0.9
+                fprintf('🟢 EXCELLENT (R² > 0.9)');
+            elseif performance.spring.r2 > 0.7
+                fprintf('🟡 GOOD (R² > 0.7)');
+            elseif performance.spring.r2 > 0.5
+                fprintf('🟠 FAIR (R² > 0.5)');
+            else
+                fprintf('🔴 POOR (R² <= 0.5)');
+            end
+            fprintf(' | Test-CV RMSE difference: %.2f\n', abs(performance.spring.rmse - performance.spring.cv_rmse));
+            
+            fprintf('   Damper Model: ');
+            if performance.damper.r2 > 0.9
+                fprintf('🟢 EXCELLENT (R² > 0.9)');
+            elseif performance.damper.r2 > 0.7
+                fprintf('🟡 GOOD (R² > 0.7)');
+            elseif performance.damper.r2 > 0.5
+                fprintf('🟠 FAIR (R² > 0.5)');
+            else
+                fprintf('🔴 POOR (R² <= 0.5)');
+            end
+            fprintf(' | Test-CV RMSE difference: %.3f\n', abs(performance.damper.rmse - performance.damper.cv_rmse));
+            
+            fprintf('   Inertia Model: ');
+            if performance.inertia.r2 > 0.9
+                fprintf('🟢 EXCELLENT (R² > 0.9)');
+            elseif performance.inertia.r2 > 0.7
+                fprintf('🟡 GOOD (R² > 0.7)');
+            elseif performance.inertia.r2 > 0.5
+                fprintf('🟠 FAIR (R² > 0.5)');
+            else
+                fprintf('🔴 POOR (R² <= 0.5)');
+            end
+            fprintf(' | Test-CV RMSE difference: %.4f\n', abs(performance.inertia.rmse - performance.inertia.cv_rmse));
+            
+            % Overall assessment
+            avg_r2 = (performance.spring.r2 + performance.damper.r2 + performance.inertia.r2) / 3;
+            fprintf('\n   📊 OVERALL ASSESSMENT: ');
+            if avg_r2 > 0.8
+                fprintf('🟢 EXCELLENT MODELS - Ready for deployment\n');
+            elseif avg_r2 > 0.6
+                fprintf('🟡 GOOD MODELS - Suitable for use\n');
+            elseif avg_r2 > 0.4
+                fprintf('🟠 FAIR MODELS - Consider improvements\n');
+            else
+                fprintf('🔴 POOR MODELS - Needs significant improvement\n');
+            end
+        end
+        
+        function [optimal_params, ml_models, confidence, performance_matrices] = calibrate_from_models()
+            % FAST CALIBRATION - With comprehensive analysis
+            fprintf('=== FAST ML CALIBRATION WITH ANALYSIS ===\n\n');
+            
+            % Load pre-trained models
+            fprintf('1. 📥 Loading ML models...\n');
+            [ml_models, performance, performance_matrices] = ml_model_optimized.load_models();
+            
+            if isempty(ml_models)
+                fprintf('   ❌ No saved models found. Please run train_and_save_models() first.\n');
+                optimal_params = []; confidence = []; performance_matrices = [];
+                return;
+            end
+            
+            % Display model performance
+            ml_model_optimized.display_performance_metrics(performance);
+            
+            % Predict from models
+            fprintf('2. 🎯 Predicting optimal parameters...\n');
+            [optimal_params, confidence] = ml_model_optimized.predict_from_models(ml_models, performance);
+            
+            % Update confidence intervals in performance matrices
+            performance_matrices.confidence_intervals{2,2} = optimal_params.spring_stiffness;
+            performance_matrices.confidence_intervals{2,3} = optimal_params.spring_stiffness - confidence.spring_ci;
+            performance_matrices.confidence_intervals{2,4} = optimal_params.spring_stiffness + confidence.spring_ci;
+            performance_matrices.confidence_intervals{2,5} = confidence.spring_ci * 2;
+            
+            performance_matrices.confidence_intervals{3,2} = optimal_params.damping_coefficient;
+            performance_matrices.confidence_intervals{3,3} = optimal_params.damping_coefficient - confidence.damper_ci;
+            performance_matrices.confidence_intervals{3,4} = optimal_params.damping_coefficient + confidence.damper_ci;
+            performance_matrices.confidence_intervals{3,5} = confidence.damper_ci * 2;
+            
+            performance_matrices.confidence_intervals{4,2} = optimal_params.inertia;
+            performance_matrices.confidence_intervals{4,3} = optimal_params.inertia - confidence.inertia_ci;
+            performance_matrices.confidence_intervals{4,4} = optimal_params.inertia + confidence.inertia_ci;
+            performance_matrices.confidence_intervals{4,5} = confidence.inertia_ci * 2;
+            
+            fprintf('✅ Fast calibration complete!\n');
+        end
+        
+        % ========== EXISTING METHODS (Keep them as they are) ==========
+        
+        function best_params = optimize_hyperparameters(features, spring, damper, inertia)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function metrics = evaluate_models(ml_models, test_features, test_spring, test_damper, test_inertia)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function metrics = calculate_metrics(actual, predicted)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function [optimal_params, confidence] = predict_from_models(ml_models, performance)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function display_feature_importance(performance)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function display_performance_metrics(performance)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function vibration_data = load_vibration_data(data_folder)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function features = extract_features(vib1, vib2, vib3, rpm, voltage)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function [spring_k, damper_c, inertia_j] = calculate_targets(data)
+            % [Keep the existing implementation exactly as is]
+            % ... existing code ...
+        end
+        
+        function [ml_models, performance, performance_matrices] = load_models(model_path)
+            % ENHANCED LOAD MODELS WITH PERFORMANCE MATRICES
+            if nargin < 1
+                model_path = '../trained_models/ml_calibration_models.mat';
+            end
+            
+            if exist(model_path, 'file')
+                loaded_data = load(model_path);
+                ml_models = loaded_data.model_package.ml_models;
+                performance = loaded_data.model_package.performance_metrics;
+                performance_matrices = loaded_data.model_package.performance_matrices;
+                fprintf('   ✅ Models, metrics, and matrices loaded from: %s\n', model_path);
+            else
+                fprintf('   ❌ No models found at: %s\n', model_path);
+                ml_models = []; performance = []; performance_matrices = [];
+            end
+        end
+        
+        function save_models(ml_models, performance_metrics, performance_matrices, model_path)
+            % ENHANCED SAVE MODELS WITH PERFORMANCE MATRICES
+            if nargin < 4
+                model_path = '../trained_models/ml_calibration_models.mat';
+            end
+            
+            [model_dir, ~, ~] = fileparts(model_path);
+            if ~isfolder(model_dir)
+                mkdir(model_dir);
+            end
+            
+            model_package = struct();
+            model_package.ml_models = ml_models;
+            model_package.performance_metrics = performance_metrics;
+            model_package.performance_matrices = performance_matrices;
+            model_package.training_date = datetime('now');
+            model_package.test_size = ml_model_optimized.TEST_SIZE;
+            
+            save(model_path, 'model_package');
+            fprintf('   💾 Models, metrics, and matrices saved to: %s\n', model_path);
+        end
+    end
