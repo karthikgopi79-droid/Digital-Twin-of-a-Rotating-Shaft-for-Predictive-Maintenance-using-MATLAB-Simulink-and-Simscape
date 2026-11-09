@@ -29,7 +29,7 @@ Virtual sensors log angular speed and shaft torque directly, and a vibration-rel
 
 Each day of simulated signal is reduced to a **12-dimensional feature vector**: RMS vibration, peak and peak-to-peak amplitude, crest factor, kurtosis, skewness, dominant frequency, low/mid/high-band spectral energy, mean speed, and mean input level. Features are normalized against a healthy baseline to form an interpretable health index.
 
-![Health index trend under progressive degradation](health-index.png)
+![Health index trend under progressive degradation](health-Index.png)
 
 Thirty consecutive days of feature vectors are assembled into a **(30 x 12) sequence** — the input to the RUL model.
 
